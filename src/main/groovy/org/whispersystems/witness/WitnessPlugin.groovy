@@ -58,7 +58,7 @@ class WitnessPlugin implements Plugin<Project> {
             }
         }
 
-        project.task('calculateChecksums') << {
+        project.task('calculateChecksums').doLast {
             Set dependencies = new TreeSet()
             project.configurations.each {
                 if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
