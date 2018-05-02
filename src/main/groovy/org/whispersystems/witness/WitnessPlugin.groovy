@@ -35,7 +35,7 @@ class WitnessPlugin implements Plugin<Project> {
     static Map<DependencyKey, String> calculateHashes(Project project) {
         def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<DependencyKey, String>()
-        project.configurations.each {
+        def addDependencies = {
             // Skip unresolvable configurations
             if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
                 it.fileCollection { dep ->
@@ -51,6 +51,8 @@ class WitnessPlugin implements Plugin<Project> {
                 }
             }
         }
+        project.configurations.each addDependencies
+        project.buildscript.configurations.each addDependencies
         return dependencies
     }
 
