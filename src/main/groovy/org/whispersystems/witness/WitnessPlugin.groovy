@@ -33,6 +33,7 @@ class WitnessPlugin implements Plugin<Project> {
     }
 
     static Map<DependencyKey, String> calculateHashes(Project project) {
+        def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<DependencyKey, String>()
         project.configurations.each {
             // Skip unresolvable configurations
@@ -41,8 +42,8 @@ class WitnessPlugin implements Plugin<Project> {
                     // Skip dependencies on other projects
                     dep.version != 'unspecified'
                 }.each {
-                    // Skip files within project root
-                    if (!it.canonicalPath.startsWith(project.rootDir.canonicalPath)) {
+                    // Skip files within project directory
+                    if (!it.canonicalPath.startsWith(projectPath)) {
                         def key = makeKey(it.path)
                         if (!dependencies.containsKey(key))
                             dependencies.put key, calculateSha256(it)
