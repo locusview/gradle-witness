@@ -33,9 +33,17 @@ class WitnessPlugin implements Plugin<Project> {
     }
 
     static Map<DependencyKey, String> calculateHashes(Project project) {
+	    def excludedProp = project.properties.get('noWitness')
+	    def excluded = excludedProp == null ? [] : excludedProp.split(',')
         def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<DependencyKey, String>()
         def addDependencies = {
+	        def scopedName = "${project.name}:${it.name}"
+	        // Skip excluded configurations
+	        if (excluded.contains(it.name) || excluded.contains(scopedName)) {
+		        println "Skipping excluded configuration ${scopedName}"
+		        return
+	        }
             // Skip unresolvable configurations
             if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
                 it.fileCollection { dep ->
@@ -115,6 +123,11 @@ class WitnessPlugin implements Plugin<Project> {
         int compareTo(DependencyKey k) {
             return all <=> k.all
         }
+
+	    @Override
+	    String toString() {
+		    return "${group}:${name}:${version}"
+	    }
     }
 }
 
