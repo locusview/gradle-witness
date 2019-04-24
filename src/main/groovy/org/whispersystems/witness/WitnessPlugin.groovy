@@ -38,10 +38,14 @@ class WitnessPlugin implements Plugin<Project> {
         def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<DependencyKey, String>()
         def addDependencies = {
+            // Skip excluded configurations and their subconfigurations
             def scopedName = "${project.name}:${it.name}"
-            // Skip excluded configurations
-            if (excluded.contains(it.name) || excluded.contains(scopedName)) {
-                return
+            it.hierarchy.each {
+                def superScopedName = "${project.name}:${it.name}"
+                if (excluded.contains(it.name) || excluded.contains(superScopedName)) {
+                    println "Skipping excluded configuration ${scopedName}"
+                    return
+                }
             }
             // Skip unresolvable configurations
             if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
@@ -63,12 +67,16 @@ class WitnessPlugin implements Plugin<Project> {
         return dependencies
     }
 
-    static Map<String, List<String>> findDependencies(Project project) {
+    static Map<String, ConfigurationInfo> findDependencies(Project project) {
         def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<String, List<String>>()
         def addDependencies = {
             // Skip unresolvable configurations
             if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
+                def superConfigurations = new ArrayList<>()
+                it.hierarchy.each { sup ->
+                    if (sup.name != it.name) superConfigurations.add(sup.name)
+                }
                 def configDependencies = new ArrayList<>()
                 it.fileCollection { dep ->
                     // Skip dependencies on other projects
@@ -82,7 +90,8 @@ class WitnessPlugin implements Plugin<Project> {
                 }
                 Collections.sort configDependencies
                 def key = "${project.name}:${it.name}".toString()
-                dependencies.put key, configDependencies
+                def info = new ConfigurationInfo(superConfigurations, configDependencies)
+                dependencies.put key, info
             }
         }
         project.configurations.each addDependencies
@@ -123,12 +132,12 @@ class WitnessPlugin implements Plugin<Project> {
 
         project.task('printDependencies').doLast {
             def dependencies = findDependencies project
-            println "dependencies:"
             dependencies.each {
-                println "    ${it.key}:"
-                it.value.each {
-                    println "        ${it}"
-                }
+                println "${it.key}:"
+                println "    superconfigurations:"
+                it.value.superConfigurations.each { println "        ${it}" }
+                println "    dependencies:"
+                it.value.dependencies.each { println "        ${it}" }
             }
         }
     }
@@ -164,6 +173,17 @@ class WitnessPlugin implements Plugin<Project> {
         @Override
         String toString() {
             return "${group}:${name}:${version}"
+        }
+    }
+
+    static class ConfigurationInfo {
+
+        final List<String> superConfigurations
+        final List<String> dependencies
+
+        ConfigurationInfo(List<String> superConfigurations, List<String> dependencies) {
+            this.superConfigurations = superConfigurations
+            this.dependencies = dependencies
         }
     }
 }
