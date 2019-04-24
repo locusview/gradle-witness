@@ -33,17 +33,16 @@ class WitnessPlugin implements Plugin<Project> {
     }
 
     static Map<DependencyKey, String> calculateHashes(Project project) {
-	    def excludedProp = project.properties.get('noWitness')
-	    def excluded = excludedProp == null ? [] : excludedProp.split(',')
+        def excludedProp = project.properties.get('noWitness')
+        def excluded = excludedProp == null ? [] : excludedProp.split(',')
         def projectPath = project.file('.').canonicalPath
         def dependencies = new TreeMap<DependencyKey, String>()
         def addDependencies = {
-	        def scopedName = "${project.name}:${it.name}"
-	        // Skip excluded configurations
-	        if (excluded.contains(it.name) || excluded.contains(scopedName)) {
-		        println "Skipping excluded configuration ${scopedName}"
-		        return
-	        }
+            def scopedName = "${project.name}:${it.name}"
+            // Skip excluded configurations
+            if (excluded.contains(it.name) || excluded.contains(scopedName)) {
+                return
+            }
             // Skip unresolvable configurations
             if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
                 it.fileCollection { dep ->
@@ -52,11 +51,38 @@ class WitnessPlugin implements Plugin<Project> {
                 }.each {
                     // Skip files within project directory
                     if (!it.canonicalPath.startsWith(projectPath)) {
-                        def key = makeKey(it.path)
+                        def key = makeKey it.path
                         if (!dependencies.containsKey(key))
                             dependencies.put key, calculateSha256(it)
                     }
                 }
+            }
+        }
+        project.configurations.each addDependencies
+        project.buildscript.configurations.each addDependencies
+        return dependencies
+    }
+
+    static Map<String, List<String>> findDependencies(Project project) {
+        def projectPath = project.file('.').canonicalPath
+        def dependencies = new TreeMap<String, List<String>>()
+        def addDependencies = {
+            // Skip unresolvable configurations
+            if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
+                def configDependencies = new ArrayList<>()
+                it.fileCollection { dep ->
+                    // Skip dependencies on other projects
+                    dep.version != 'unspecified'
+                }.each {
+                    // Skip files within project directory
+                    if (!it.canonicalPath.startsWith(projectPath)) {
+                        def hash = calculateSha256 it
+                        configDependencies.add("${makeKey(it.path)}:${hash}".toString())
+                    }
+                }
+                Collections.sort configDependencies
+                def key = "${project.name}:${it.name}".toString()
+                dependencies.put key, configDependencies
             }
         }
         project.configurations.each addDependencies
@@ -94,6 +120,17 @@ class WitnessPlugin implements Plugin<Project> {
             println "    ]"
             println "}"
         }
+
+        project.task('printDependencies').doLast {
+            def dependencies = findDependencies project
+            println "dependencies:"
+            dependencies.each {
+                println "    ${it.key}:"
+                it.value.each {
+                    println "        ${it}"
+                }
+            }
+        }
     }
 
     static class DependencyKey implements Comparable<DependencyKey> {
@@ -124,10 +161,10 @@ class WitnessPlugin implements Plugin<Project> {
             return all <=> k.all
         }
 
-	    @Override
-	    String toString() {
-		    return "${group}:${name}:${version}"
-	    }
+        @Override
+        String toString() {
+            return "${group}:${name}:${version}"
+        }
     }
 }
 
