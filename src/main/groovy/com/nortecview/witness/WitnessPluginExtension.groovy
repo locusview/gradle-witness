@@ -1,4 +1,4 @@
-package org.whispersystems.witness
+package com.nortecview.witness
 
 class WitnessPluginExtension {
     List verify

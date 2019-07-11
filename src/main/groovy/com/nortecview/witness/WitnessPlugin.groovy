@@ -1,4 +1,4 @@
-package org.whispersystems.witness
+package com.nortecview.witness
 
 import org.gradle.api.InvalidUserDataException
 import org.gradle.api.Plugin
