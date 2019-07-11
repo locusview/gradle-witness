@@ -3,12 +3,9 @@ package org.whispersystems.witness
 import org.gradle.api.InvalidUserDataException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.artifacts.Configuration
 
 import java.security.MessageDigest
-
-class WitnessPluginExtension {
-    List verify
-}
 
 class WitnessPlugin implements Plugin<Project> {
 
@@ -35,68 +32,73 @@ class WitnessPlugin implements Plugin<Project> {
     static Map<DependencyKey, String> calculateHashes(Project project) {
         def excludedProp = project.properties.get('noWitness')
         def excluded = excludedProp == null ? [] : excludedProp.split(',')
-        def projectPath = project.file('.').canonicalPath
-        def dependencies = new TreeMap<DependencyKey, String>()
-        def addDependencies = {
+        def dependenciesMap = new TreeMap<DependencyKey, String>()
+
+        def configurations = collectProjectConfigurations(project).findAll { Configuration configuration ->
             // Skip excluded configurations and their subconfigurations
-            def scopedName = "${project.name}:${it.name}"
-            it.hierarchy.each {
-                def superScopedName = "${project.name}:${it.name}"
-                if (excluded.contains(it.name) || excluded.contains(superScopedName)) {
+            def scopedName = "${project.name}:${configuration.name}"
+            configuration.hierarchy.each { Configuration superConfiguration ->
+                def superScopedName = "${project.name}:${superConfiguration.name}"
+                if (excluded.contains(superConfiguration.name) || excluded.contains(superScopedName)) {
                     println "Skipping excluded configuration ${scopedName}"
-                    return
+                    return false
                 }
             }
-            // Skip unresolvable configurations
-            if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
-                it.fileCollection { dep ->
-                    // Skip dependencies on other projects
-                    dep.version != 'unspecified'
-                }.each {
-                    // Skip files within project directory
-                    if (!it.canonicalPath.startsWith(projectPath)) {
-                        def key = makeKey it.path
-                        if (!dependencies.containsKey(key))
-                            dependencies.put key, calculateSha256(it)
-                    }
-                }
+            true
+        }
+        configurations.each { Configuration configuration ->
+            filterConfigurationDependencies(project, configuration).each { key, hash ->
+                dependenciesMap.put key, hash
             }
         }
-        project.configurations.each addDependencies
-        project.buildscript.configurations.each addDependencies
-        return dependencies
+        return dependenciesMap
     }
 
     static Map<String, ConfigurationInfo> findDependencies(Project project) {
+        def dependenciesMap = new TreeMap<String, ConfigurationInfo>()
+
+        collectProjectConfigurations(project).each { Configuration configuration ->
+            def configDependencies = new ArrayList<String>()
+
+            filterConfigurationDependencies(project, configuration).each { key, hash ->
+                configDependencies.add("$key:$hash".toString())
+            }
+            Collections.sort configDependencies
+
+            def superConfigurations = new ArrayList<>()
+            configuration.hierarchy.each { Configuration superConfiguration ->
+                if (superConfiguration.name != configuration.name) superConfigurations.add(superConfiguration.name)
+            }
+            def info = new ConfigurationInfo(superConfigurations, configDependencies)
+
+            dependenciesMap.put "${project.name}:${configuration.name}".toString(), info
+        }
+        return dependenciesMap
+    }
+
+    static Set<Configuration> collectProjectConfigurations(Project project) {
+        project.configurations + project.buildscript.configurations
+    }
+
+    static Map<DependencyKey, String> filterConfigurationDependencies(Project project, Configuration configuration) {
+        def dependenciesMap = new TreeMap<DependencyKey, String>()
         def projectPath = project.file('.').canonicalPath
-        def dependencies = new TreeMap<String, List<String>>()
-        def addDependencies = {
-            // Skip unresolvable configurations
-            if (it.metaClass.respondsTo(it, 'isCanBeResolved') ? it.isCanBeResolved() : true) {
-                def superConfigurations = new ArrayList<>()
-                it.hierarchy.each { sup ->
-                    if (sup.name != it.name) superConfigurations.add(sup.name)
+
+        // Skip unresolvable configurations
+        if (configuration.metaClass.respondsTo(configuration, 'isCanBeResolved') ? configuration.isCanBeResolved() : true) {
+            configuration.files.each { File file ->
+                String depPath = file.canonicalPath
+                // Skip files within project directory
+                if (depPath.contains('build/lib')) {
+                    // ">>>> Skipping ${project.name} local dependency ${file.name}"
+                } else if (depPath.startsWith(projectPath)) {
+                    // ">>>> Skipping ${project.name} subpath ${file.name}"
+                } else {
+                    dependenciesMap.put makeKey(file.path), calculateSha256(file)
                 }
-                def configDependencies = new ArrayList<>()
-                it.fileCollection { dep ->
-                    // Skip dependencies on other projects
-                    dep.version != 'unspecified'
-                }.each {
-                    // Skip files within project directory
-                    if (!it.canonicalPath.startsWith(projectPath)) {
-                        def hash = calculateSha256 it
-                        configDependencies.add("${makeKey(it.path)}:${hash}".toString())
-                    }
-                }
-                Collections.sort configDependencies
-                def key = "${project.name}:${it.name}".toString()
-                def info = new ConfigurationInfo(superConfigurations, configDependencies)
-                dependencies.put key, info
             }
         }
-        project.configurations.each addDependencies
-        project.buildscript.configurations.each addDependencies
-        return dependencies
+        dependenciesMap
     }
 
     void apply(Project project) {
@@ -121,7 +123,7 @@ class WitnessPlugin implements Plugin<Project> {
             }
         }
 
-        project.task('calculateChecksums').doLast {
+        project.task('calculateChecksums', group: 'witness').doLast {
             def dependencies = calculateHashes project
             println "dependencyVerification {"
             println "    verify = ["
@@ -130,7 +132,7 @@ class WitnessPlugin implements Plugin<Project> {
             println "}"
         }
 
-        project.task('printDependencies').doLast {
+        project.task('printDependencies', group: 'witness').doLast {
             def dependencies = findDependencies project
             dependencies.each {
                 println "${it.key}:"
@@ -142,49 +144,5 @@ class WitnessPlugin implements Plugin<Project> {
         }
     }
 
-    static class DependencyKey implements Comparable<DependencyKey> {
-
-        final String group, name, version, file, all
-
-        DependencyKey(group, name, version, file) {
-            this.group = group
-            this.name = name
-            this.version = version
-            this.file = file
-            all = "${group}:${name}:${version}:${file}".toString()
-        }
-
-        @Override
-        boolean equals(Object o) {
-            if (o instanceof DependencyKey) return ((DependencyKey) o).all == all
-            return false
-        }
-
-        @Override
-        int hashCode() {
-            return all.hashCode()
-        }
-
-        @Override
-        int compareTo(DependencyKey k) {
-            return all <=> k.all
-        }
-
-        @Override
-        String toString() {
-            return "${group}:${name}:${version}"
-        }
-    }
-
-    static class ConfigurationInfo {
-
-        final List<String> superConfigurations
-        final List<String> dependencies
-
-        ConfigurationInfo(List<String> superConfigurations, List<String> dependencies) {
-            this.superConfigurations = superConfigurations
-            this.dependencies = dependencies
-        }
-    }
 }
 
