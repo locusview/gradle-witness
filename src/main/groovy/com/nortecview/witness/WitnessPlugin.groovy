@@ -102,8 +102,9 @@ class WitnessPlugin implements Plugin<Project> {
     }
 
     void apply(Project project) {
-        project.extensions.create("dependencyVerification", WitnessPluginExtension)
-        project.afterEvaluate {
+        project.extensions.create('dependencyVerification', WitnessPluginExtension)
+
+        project.task('verifyDependencies', group: 'witness').doLast {
             def dependencies = calculateHashes project
             project.dependencyVerification.verify.each { assertion ->
                 def parts = assertion.tokenize(":")
