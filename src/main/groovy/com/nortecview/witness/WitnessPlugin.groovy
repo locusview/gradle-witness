@@ -93,7 +93,7 @@ class WitnessPlugin implements Plugin<Project> {
                     // ">>>> Skipping ${project.name} local dependency ${file.name}"
                 } else if (depPath.startsWith(projectPath)) {
                     // ">>>> Skipping ${project.name} subpath ${file.name}"
-                } else {
+                } else if (file.exists()) {
                     dependenciesMap.put makeKey(file.path), calculateSha256(file)
                 }
             }
@@ -105,6 +105,7 @@ class WitnessPlugin implements Plugin<Project> {
         project.extensions.create('dependencyVerification', WitnessPluginExtension)
 
         project.task('verifyDependencies', group: 'witness').doLast {
+            println 'calculating hashes'
             def dependencies = calculateHashes project
             project.dependencyVerification.verify.each { assertion ->
                 def parts = assertion.tokenize(":")
