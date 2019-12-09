@@ -93,7 +93,7 @@ class WitnessPlugin implements Plugin<Project> {
                     // ">>>> Skipping ${project.name} local dependency ${file.name}"
                 } else if (depPath.startsWith(projectPath)) {
                     // ">>>> Skipping ${project.name} subpath ${file.name}"
-                } else if (file.exists()) {
+                } else if (file.exists() && file.isFile()) {
                     dependenciesMap.put makeKey(file.path), calculateSha256(file)
                 }
             }
